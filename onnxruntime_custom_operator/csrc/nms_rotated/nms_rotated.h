@@ -17,8 +17,6 @@ struct NMSRotatedKernel {
   void Compute(OrtKernelContext* context);
 
  private:
-  Ort::CustomOpApi ort_;
-  const OrtKernelInfo* info_;
   Ort::AllocatorWithDefaultOptions allocator_;
   float iou_threshold_;
   float score_threshold_;

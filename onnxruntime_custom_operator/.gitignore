@@ -1,0 +1,8 @@
+# Local build artifacts and tooling — not needed in the repo / container
+.convert-venv/
+onnxruntime-osx-*/
+*.tgz
+out/
+csrc/build/
+csrc/build-*/
+*.dylib

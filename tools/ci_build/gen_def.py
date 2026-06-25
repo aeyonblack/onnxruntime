@@ -11,6 +11,7 @@ def parse_arguments():
     parser.add_argument("--version_file", required=True, help="VERSION_NUMBER file")
     parser.add_argument("--style", required=True, choices=["gcc", "vc", "xcode", "aix"])
     parser.add_argument("--config", required=True, nargs="+")
+    parser.add_argument("--extra_symbols_file", action="append", default=[], help="Additional symbols to export")
     return parser.parse_args()
 
 
@@ -22,6 +23,7 @@ with open(args.version_file) as f:
 print(f"VERSION:{VERSION_STRING}")
 
 symbols = set()
+extra_symbols = set()
 for c in args.config:
     file_name = os.path.join(args.src_root, "core", "providers", c, "symbols.txt")
     with open(file_name) as file:
@@ -31,6 +33,18 @@ for c in args.config:
                 print("dup symbol: %s", line)
                 exit(-1)
             symbols.add(line)
+
+for file_name in args.extra_symbols_file:
+    with open(file_name) as file:
+        for line in file:
+            line = line.strip()  # noqa: PLW2901
+            if not line:
+                continue
+            if line in symbols:
+                print("dup symbol: %s", line)
+                exit(-1)
+            symbols.add(line)
+            extra_symbols.add(line)
 symbols = sorted(symbols)
 
 symbol_index = 1
@@ -62,6 +76,8 @@ with open(args.output, "w") as file:
 
 with open(args.output_source, "w") as file:
     file.write("#include <onnxruntime_c_api.h>\n")
+    for symbol in sorted(extra_symbols):
+        file.write(f"extern void {symbol}(void);\n")
     for c in args.config:
         # WinML adapter should not be exported in platforms other than Windows.
         # Exporting OrtGetWinMLAdapter is exported without issues using .def file when compiling for Windows

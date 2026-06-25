@@ -4,7 +4,7 @@
 # --------------------------------------------------------------
 # Dockerfile for ONNX Runtime Android package build environment
 
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install --yes --no-install-recommends \
   build-essential \
   ca-certificates \
   git \
+  gnupg \
   ninja-build \
   openjdk-17-jdk-headless \
   python3-dev \
@@ -23,12 +24,22 @@ RUN apt-get update && apt-get install --yes --no-install-recommends \
   python3-wheel \
   zip unzip pkg-config lsb-release
 
+# WebGPU WGSL template generation requires Node.js 20 or newer.
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+  apt-get install --yes --no-install-recommends nodejs && \
+  node --version && \
+  npm --version
+
 # cmake
 RUN CMAKE_VERSION=3.31.5 && \
-  aria2c -d /tmp -o cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz \
-  --checksum=sha-256=2984e70515ff60c5e4a41922b5d715a8168a696a89721e3b114e36f453244f72 \
-  https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz && \
-  tar -zxf /tmp/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz --strip=1 -C /usr
+  case "$(uname -m)" in \
+    x86_64) CMAKE_ARCH=x86_64 ;; \
+    aarch64|arm64) CMAKE_ARCH=aarch64 ;; \
+    *) echo "Unsupported architecture: $(uname -m)" && exit 1 ;; \
+  esac && \
+  aria2c -d /tmp -o cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz \
+  https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz && \
+  tar -zxf /tmp/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz --strip=1 -C /usr
 
 # gradle
 # Note: A system-installed gradle is not required in more recent versions of ORT which use an included gradle wrapper,
@@ -53,8 +64,11 @@ RUN adduser --gecos "onnxruntime Build User" --disabled-password --uid ${BUILD_U
 USER ${BUILD_USER}
 WORKDIR /workspace
 
+# Avoid intermittent HTTP/2 stream resets during large GitHub clones in Docker.
+RUN git config --global http.version HTTP/1.1
+
 # install Android SDK and tools
-ENV ANDROID_HOME=~/android-sdk
+ENV ANDROID_HOME=/workspace/android-sdk
 ENV NDK_VERSION=28.0.13004108
 ENV ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}
 
@@ -75,6 +89,19 @@ ARG ONNXRUNTIME_REPO=https://github.com/microsoft/onnxruntime.git
 ARG ONNXRUNTIME_BRANCH_OR_TAG=main
 RUN git clone --single-branch --branch=${ONNXRUNTIME_BRANCH_OR_TAG} --recurse-submodules ${ONNXRUNTIME_REPO} \
   /workspace/onnxruntime
+
+# The Android AAR helper enables the Microsoft vcpkg asset cache with x-block-origin.
+# If that cache has a transient EOF/SSL failure, vcpkg cannot fall back to GitHub.
+# Allow fallback downloads for custom local builds.
+RUN python3 - <<'PY'
+from pathlib import Path
+
+path = Path("/workspace/onnxruntime/tools/ci_build/build.py")
+text = path.read_text()
+text = text.replace("\\\\;x-block-origin", "")
+text = text.replace(";x-block-origin", "")
+path.write_text(text)
+PY
 
 # add scripts
 COPY --chown=${BUILD_UID} scripts /workspace/scripts

@@ -179,6 +179,8 @@ option(onnxruntime_DISABLE_ABSEIL "Do not use Abseil data structures in ONNX Run
 
 option(onnxruntime_EXTENDED_MINIMAL_BUILD "onnxruntime_MINIMAL_BUILD with support for execution providers that compile kernels." OFF)
 option(onnxruntime_MINIMAL_BUILD_CUSTOM_OPS "Add custom operator kernels support to a minimal build." OFF)
+option(onnxruntime_ENABLE_STATIC_MMDEPLOY_NMS_ROTATED_OPS "Statically link the MMDeploy NMSRotated custom op into libonnxruntime." OFF)
+set(onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR "" CACHE PATH "Path to the MMDeploy NMSRotated custom op csrc directory.")
 option(onnxruntime_REDUCED_OPS_BUILD "Reduced set of kernels are registered in build via modification of the kernel registration source files." OFF)
 option(onnxruntime_DISABLE_EXTERNAL_INITIALIZERS "Don't allow models to load external data" OFF)
 

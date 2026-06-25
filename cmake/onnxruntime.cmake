@@ -64,15 +64,22 @@ if(onnxruntime_BUILD_SHARED_LIB)
   # after build
 
   list(APPEND SYMBOL_FILES "${REPO_ROOT}/tools/ci_build/gen_def.py")
+  set(EXTRA_SYMBOL_ARGS)
   foreach(f ${ONNXRUNTIME_PROVIDER_NAMES})
     list(APPEND SYMBOL_FILES "${ONNXRUNTIME_ROOT}/core/providers/${f}/symbols.txt")
   endforeach()
+  if(onnxruntime_ENABLE_STATIC_MMDEPLOY_NMS_ROTATED_OPS)
+    set(ORT_STATIC_CUSTOM_OPS_SYMBOL_FILE "${CMAKE_CURRENT_BINARY_DIR}/static_custom_ops_symbols.txt")
+    file(WRITE "${ORT_STATIC_CUSTOM_OPS_SYMBOL_FILE}" "RegisterCustomOps\n")
+    list(APPEND SYMBOL_FILES "${ORT_STATIC_CUSTOM_OPS_SYMBOL_FILE}")
+    list(APPEND EXTRA_SYMBOL_ARGS --extra_symbols_file "${ORT_STATIC_CUSTOM_OPS_SYMBOL_FILE}")
+  endif()
 
   add_custom_command(OUTPUT ${SYMBOL_FILE} ${CMAKE_CURRENT_BINARY_DIR}/generated_source.c
     COMMAND ${Python_EXECUTABLE} "${REPO_ROOT}/tools/ci_build/gen_def.py"
       --version_file "${ONNXRUNTIME_ROOT}/../VERSION_NUMBER" --src_root "${ONNXRUNTIME_ROOT}"
       --config ${ONNXRUNTIME_PROVIDER_NAMES} --style=${OUTPUT_STYLE} --output ${SYMBOL_FILE}
-      --output_source ${CMAKE_CURRENT_BINARY_DIR}/generated_source.c
+      --output_source ${CMAKE_CURRENT_BINARY_DIR}/generated_source.c ${EXTRA_SYMBOL_ARGS}
     DEPENDS ${SYMBOL_FILES}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
@@ -137,6 +144,29 @@ if(onnxruntime_BUILD_SHARED_LIB)
 
 
   target_compile_definitions(onnxruntime PRIVATE FILE_NAME=\"onnxruntime.dll\")
+
+  if(onnxruntime_ENABLE_STATIC_MMDEPLOY_NMS_ROTATED_OPS)
+    if(NOT onnxruntime_MINIMAL_BUILD_CUSTOM_OPS)
+      message(FATAL_ERROR "onnxruntime_ENABLE_STATIC_MMDEPLOY_NMS_ROTATED_OPS requires onnxruntime_MINIMAL_BUILD_CUSTOM_OPS=ON")
+    endif()
+    if(NOT onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR)
+      set(onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR "${REPO_ROOT}/onnxruntime_custom_operator/csrc")
+    endif()
+    if(NOT EXISTS "${onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR}/onnxruntime_register.cpp")
+      message(FATAL_ERROR "onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR must point to the custom op csrc directory")
+    endif()
+    target_sources(onnxruntime PRIVATE
+      "${onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR}/nms_rotated/nms_rotated.cpp"
+      "${onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR}/common/ort_utils.cpp"
+      "${onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR}/onnxruntime_register.cpp"
+    )
+    target_include_directories(onnxruntime PRIVATE
+      "${onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR}/nms_rotated"
+      "${onnxruntime_MMDEPLOY_NMS_ROTATED_OPS_DIR}/common"
+      "${REPO_ROOT}/include/onnxruntime/core/session"
+    )
+    target_compile_definitions(onnxruntime PRIVATE MMDEPLOY_API_EXPORTS)
+  endif()
 
   if(UNIX)
     if (APPLE)

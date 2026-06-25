@@ -312,11 +312,11 @@ def generate_vcpkg_install_options(build_dir, args):
             vcpkg_install_options.append(
                 "--x-asset-sources=x-script,"
                 + terrapin_cmd_path
-                + " -b https://vcpkg.storage.devpackages.microsoft.io/artifacts/ -a true -u Environment -p {url} -s {sha512} -d {dst}\\;x-block-origin"
+                + " -b https://vcpkg.storage.devpackages.microsoft.io/artifacts/ -a true -u Environment -p {url} -s {sha512} -d {dst}"
             )
         else:
             vcpkg_install_options.append(
-                "--x-asset-sources=x-azurl,https://vcpkg.storage.devpackages.microsoft.io/artifacts/\\;x-block-origin"
+                "--x-asset-sources=x-azurl,https://vcpkg.storage.devpackages.microsoft.io/artifacts/"
             )
 
     return vcpkg_install_options

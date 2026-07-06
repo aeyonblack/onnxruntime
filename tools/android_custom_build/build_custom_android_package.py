@@ -93,6 +93,34 @@ def parse_args():
         help="The path to docker. If unspecified, docker should be in PATH.",
     )
 
+    # --- Maven publishing (runs on the host after the Docker build) ---
+    publish_group = parser.add_argument_group("publishing")
+    publish_group.add_argument(
+        "--publish",
+        action="store_true",
+        help="After building, publish the AAR to a GitHub Packages Maven registry. "
+        "Requires --publish_github_url and GitHub credentials (GITHUB_ACTOR / GITHUB_TOKEN "
+        "environment variables, or gpr.user / gpr.key in ~/.gradle/gradle.properties). "
+        "The token needs the write:packages scope.",
+    )
+    publish_group.add_argument(
+        "--publish_github_url",
+        help="GitHub Packages Maven URL to publish to, e.g. "
+        "https://maven.pkg.github.com/<owner>/<repo>. Required when --publish is set.",
+    )
+    publish_group.add_argument(
+        "--publish_group",
+        help="Published Maven groupId. Defaults to the AAR's own group (com.microsoft.onnxruntime).",
+    )
+    publish_group.add_argument(
+        "--publish_artifact_id",
+        help="Published Maven artifactId. Defaults to onnxruntime-android.",
+    )
+    publish_group.add_argument(
+        "--publish_version",
+        help="Published Maven version. Defaults to the built ONNX Runtime version.",
+    )
+
     args = parser.parse_args()
 
     if not args.build_settings.is_file():
@@ -104,7 +132,56 @@ def parse_args():
     if args.docker_path is None:
         raise ValueError("Unable to determine docker path. Please provide it with --docker_path.")
 
+    if args.publish:
+        if not args.publish_github_url:
+            raise ValueError("--publish requires --publish_github_url.")
+        # Fail fast on obviously-missing credentials rather than after a long build.
+        has_env_creds = os.environ.get("GITHUB_TOKEN") and os.environ.get("GITHUB_ACTOR")
+        gradle_props = pathlib.Path.home() / ".gradle" / "gradle.properties"
+        if not has_env_creds and not gradle_props.is_file():
+            raise ValueError(
+                "--publish needs GitHub credentials. Set GITHUB_ACTOR and GITHUB_TOKEN "
+                "environment variables (token needs write:packages), or put gpr.user / gpr.key "
+                "in ~/.gradle/gradle.properties."
+            )
+
     return args
+
+
+def publish_aar(args, output_dir):
+    """Publish the freshly built AAR to a Maven registry using the standalone
+    publisher gradle project. Runs on the host so credentials stay off the container."""
+    aar_root = output_dir / "aar_out" / args.config
+    aars = sorted(p for p in aar_root.glob("**/onnxruntime-android-*.aar") if p.suffix == ".aar")
+    if not aars:
+        raise RuntimeError(f"No built AAR found under '{aar_root}' to publish.")
+    aar_path = aars[0]
+    aar_dir = aar_path.parent
+    file_version = aar_dir.name  # the version directory, e.g. "1.27.0"
+    published_version = args.publish_version or file_version
+
+    repo_root = SCRIPT_DIR.parents[1]
+    gradlew = repo_root / "java" / ("gradlew.bat" if is_windows() else "gradlew")
+    publish_project = SCRIPT_DIR / "publish"
+
+    gradle_cmd = [
+        str(gradlew),
+        "-p",
+        str(publish_project),
+        "publish",
+        f"-PaarDir={aar_dir}",
+        "-PaarFileName=onnxruntime-android",
+        f"-PaarFileVersion={file_version}",
+        f"-PaarVersion={published_version}",
+        f"-PgithubUrl={args.publish_github_url}",
+    ]
+    if args.publish_group:
+        gradle_cmd.append(f"-PaarGroup={args.publish_group}")
+    if args.publish_artifact_id:
+        gradle_cmd.append(f"-PaarArtifactId={args.publish_artifact_id}")
+
+    print(f"Publishing AAR '{aar_path.name}' as version '{published_version}' to {args.publish_github_url}")
+    run(gradle_cmd, cwd=str(repo_root))
 
 
 def main():
@@ -175,6 +252,10 @@ def main():
     run(docker_container_build_cmd)
 
     print("Finished building Android package at '{}'.".format(output_dir / "aar_out"))
+
+    if args.publish:
+        publish_aar(args, output_dir)
+        print("Finished publishing Android package to '{}'.".format(args.publish_github_url))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,63 @@
+// Standalone publisher for a pre-built custom ONNX Runtime Android AAR.
+//
+// It does NOT build anything — it takes the .aar produced by
+// build_custom_android_package.py (under aar_out/<config>/.../<version>/) and
+// publishes it to the local Maven cache (~/.m2) and/or an internal
+// GitHub Packages Maven registry.
+//
+// Run against the repo's gradlew with -p, e.g.:
+//   java/gradlew -p tools/android_custom_build/publish publishToMavenLocal -PaarDir=... -PaarVersion=...
+//   java/gradlew -p tools/android_custom_build/publish publish            -PaarDir=... -PaarVersion=... -PgithubUrl=...
+plugins {
+  id 'maven-publish'
+}
+
+// --- required ---
+def aarDir      = providers.gradleProperty('aarDir').get()          // dir containing the built <name>-<version>.aar
+def aarVersion  = providers.gradleProperty('aarVersion').get()      // e.g. 1.27.0
+// --- optional (with sensible defaults) ---
+def aarGroup    = providers.gradleProperty('aarGroup').getOrElse('com.microsoft.onnxruntime')
+def aarArtifact = providers.gradleProperty('aarArtifactId').getOrElse('onnxruntime-android')
+// On-disk base name of the built files (defaults to the ORT build's own artifactId).
+// Kept separate from aarArtifactId so the *published* coordinates can be renamed
+// without renaming the files build_aar_package.py produced.
+def srcName     = providers.gradleProperty('aarFileName').getOrElse('onnxruntime-android')
+
+group   = aarGroup
+version = aarVersion
+
+publishing {
+  publications {
+    release(MavenPublication) {
+      groupId    = aarGroup
+      artifactId = aarArtifact
+      version    = aarVersion
+
+      artifact("${aarDir}/${srcName}-${aarVersion}.aar")
+
+      // attach sources / javadoc if the build produced them
+      def srcJar = file("${aarDir}/${srcName}-${aarVersion}-sources.jar")
+      if (srcJar.exists()) artifact(srcJar) { classifier = 'sources' }
+      def docJar = file("${aarDir}/${srcName}-${aarVersion}-javadoc.jar")
+      if (docJar.exists()) artifact(docJar) { classifier = 'javadoc' }
+
+      // Android consumers need packaging=aar to resolve the .aar
+      pom.packaging = 'aar'
+    }
+  }
+
+  repositories {
+    // GitHub Packages target — only registered when -PgithubUrl is supplied.
+    // Credentials come from -Pgpr.user/-Pgpr.key or the GITHUB_ACTOR/GITHUB_TOKEN env vars.
+    if (project.hasProperty('githubUrl')) {
+      maven {
+        name = 'GitHubPackages'
+        url  = uri(githubUrl)   // https://maven.pkg.github.com/<owner>/<repo>
+        credentials {
+          username = (project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR'))
+          password = (project.findProperty('gpr.key')  ?: System.getenv('GITHUB_TOKEN'))
+        }
+      }
+    }
+  }
+}
